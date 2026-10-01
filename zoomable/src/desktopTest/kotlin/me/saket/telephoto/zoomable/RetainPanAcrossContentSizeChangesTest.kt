@@ -188,6 +188,41 @@ class RetainPanAcrossContentSizeChangesTest {
     assertSameFraction(expectedFraction, state.contentFractionAtViewportCenter(), "after full image loads")
   }
 
+  @Test fun restoring_layout_sized_content_into_a_resized_viewport_keeps_user_zoom() {
+    // Content that matches the layout's bounds is re-measured on resize rather than
+    // resolved at a new resolution, so the viewport adjustment must not rescale it.
+    val original = RealZoomableState(SavedZoomableState(autoApplyTransformations = true)).apply {
+      viewportSize = Size(1_000f, 2_000f)
+      density = Density(1f)
+    }
+    original.pinchBy(1.5f, centroid = Offset(300f, 300f))
+
+    val restored = RealZoomableState(original.save()).apply {
+      viewportSize = Size(2_000f, 4_000f)
+      density = Density(1f)
+    }
+    assertUserZoom(1.5f, restored, "after restoration")
+  }
+
+  @Test fun restoring_a_relaid_out_image_after_rotation_keeps_user_zoom() {
+    // ContentScale.Inside re-lays out an image larger than the viewport when the viewport
+    // changes, which must not be mistaken for a change in the image's resolution.
+    val location = ZoomableContentLocation.scaledInsideAndCenterAligned(Size(4_000f, 3_000f))
+    val original = RealZoomableState(SavedZoomableState(autoApplyTransformations = true)).apply {
+      viewportSize = Size(1_080f, 2_400f)
+      density = Density(1f)
+      setContentLocation(location)
+    }
+    original.pinchBy(1.2f, centroid = Offset(540f, 1_200f))
+
+    val restored = RealZoomableState(original.save()).apply {
+      viewportSize = Size(2_400f, 1_080f)
+      density = Density(1f)
+      setContentLocation(location)
+    }
+    assertUserZoom(1.2f, restored, "after restoration")
+  }
+
   @Test fun relaying_out_the_same_content_does_not_replace_the_gesture_state() = runComposeUiTest {
     val location = ZoomableContentLocation.scaledInsideAndCenterAligned(Size(4_000f, 3_000f))
     val state = RealZoomableState(SavedZoomableState(autoApplyTransformations = true)).apply {
