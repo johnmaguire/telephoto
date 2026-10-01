@@ -188,6 +188,23 @@ class RetainPanAcrossContentSizeChangesTest {
     assertSameFraction(expectedFraction, state.contentFractionAtViewportCenter(), "after full image loads")
   }
 
+  @Test fun restored_anchor_survives_viewport_and_size_change_for_centered_content() {
+    val original = RealZoomableState(SavedZoomableState(autoApplyTransformations = true)).apply {
+      viewportSize = Size(500f, 500f)
+      density = Density(1f)
+      setContentLocation(ZoomableContentLocation.scaledInsideAndCenterAligned(Size(200f, 100f)))
+    }
+    original.pinchBy(2f, centroid = Offset(150f, 200f))
+    val expectedFraction = original.contentFractionAtViewportCenter()
+
+    val restored = RealZoomableState(original.save()).apply {
+      viewportSize = Size(600f, 500f)
+      density = Density(1f)
+      setContentLocation(ZoomableContentLocation.scaledInsideAndCenterAligned(Size(400f, 200f)))
+    }
+    assertSameFraction(expectedFraction, restored.contentFractionAtViewportCenter(), "after restoration")
+  }
+
   @Test fun restoring_layout_sized_content_into_a_resized_viewport_keeps_user_zoom() {
     // Content that matches the layout's bounds is re-measured on resize rather than
     // resolved at a new resolution, so the viewport adjustment must not rescale it.
@@ -288,5 +305,53 @@ class RetainPanAcrossContentSizeChangesTest {
     waitForIdle()
     assertUserZoom(expectedZoom, state, "after full image loads")
     assertSameFraction(expectedFraction, state.contentFractionAtViewportCenter(), "after full image loads")
+  }
+
+  @Test fun restored_anchor_survives_rotation_and_resolution_change_together() {
+    val original = RealZoomableState(SavedZoomableState(autoApplyTransformations = true)).apply {
+      viewportSize = Size(1_080f, 2_400f)
+      density = Density(1f)
+      setContentLocation(ZoomableContentLocation.scaledInsideAndCenterAligned(Size(400f, 300f)))
+    }
+    // Zoomed far enough that the content remains pannable horizontally after the rotation.
+    original.pinchBy(2.5f, centroid = Offset(400f, 1_100f))
+    val expectedFraction = original.contentFractionAtViewportCenter()
+
+    // The full image is re-laid out for the rotated viewport as well as being a higher resolution.
+    val restored = RealZoomableState(original.save()).apply {
+      viewportSize = Size(2_400f, 1_080f)
+      density = Density(1f)
+      setContentLocation(ZoomableContentLocation.scaledInsideAndCenterAligned(Size(4_000f, 3_000f)))
+    }
+    assertSameFraction(expectedFraction, restored.contentFractionAtViewportCenter(), "after restoration")
+  }
+
+  @Test fun restored_state_is_kept_when_new_content_looks_unchanged() = runComposeUiTest {
+    // The preview is larger than the restored viewport but smaller than the saved one, so the
+    // preview and the full image occupy the same bounds only after the rotation.
+    val original = RealZoomableState(SavedZoomableState(autoApplyTransformations = true)).apply {
+      viewportSize = Size(2_000f, 1_000f)
+      density = Density(1f)
+      setContentLocation(ZoomableContentLocation.scaledInsideAndCenterAligned(Size(1_500f, 750f)))
+    }
+    original.pinchBy(2f, centroid = Offset(600f, 400f))
+
+    val restored = RealZoomableState(original.save()).apply {
+      viewportSize = Size(1_000f, 2_000f)
+      density = Density(1f)
+    }
+    var contentSize by mutableStateOf(Size(1_500f, 750f))
+    setContent {
+      restored.RetainPanAcrossContentSizeChangesEffect()
+      restored.setContentLocation(ZoomableContentLocation.scaledInsideAndCenterAligned(contentSize))
+    }
+    waitForIdle()
+    val expectedZoom = restored.contentTransformation.scaleMetadata.userZoom
+    val expectedFraction = restored.contentFractionAtViewportCenter()
+
+    contentSize = Size(6_000f, 3_000f)
+    waitForIdle()
+    assertUserZoom(expectedZoom, restored, "after full image loads")
+    assertSameFraction(expectedFraction, restored.contentFractionAtViewportCenter(), "after full image loads")
   }
 }
