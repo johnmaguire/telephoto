@@ -39,6 +39,7 @@ internal data class SavedGestureState(
   // After restoration the content may resolve at a different resolution, e.g. a preview
   // is shown first while its full quality version loads.
   private val contentSize: Long? = null,
+  private val contentTopLeft: Long? = null,
 ) : AndroidParcelable {
 
   @AndroidParcelize
@@ -67,6 +68,7 @@ internal data class SavedGestureState(
         userZoom = gestureState.userZoom.value,
         centroid = gestureState.lastCentroid.packToLong(),
         contentSize = inputs.unscaledContentBounds.size.packToLong(),
+        contentTopLeft = inputs.unscaledContentBounds.topLeft.packToLong(),
         contentPositionInfo = inputs.viewportSize.let { viewportSize ->
           if (viewportSize.isSpecifiedAndNonEmpty) {
             ContentPositionInfo(
@@ -133,7 +135,18 @@ internal data class SavedGestureState(
         } else it
       },
       oldContentOffsetAtViewportCenter = contentPositionInfo.contentOffsetAtViewportCenter.unpackAsOffset().let {
-        if (resolutionScale != null) it * resolutionScale else it
+        if (resolutionScale != null && contentSize != null) {
+          // The anchor is relative to the layout's origin, so only its position within the content
+          // scales. Use the content's actual change in bounds: unlike resolutionScale, it includes
+          // any re-layout for the new viewport.
+          val savedTopLeft = contentTopLeft?.unpackAsOffset() ?: Offset.Zero
+          val savedSize = contentSize.unpackAsSize()
+          val bounds = inputs.unscaledContentBounds
+          bounds.topLeft + (it - savedTopLeft) * ScaleFactor(
+            scaleX = bounds.width / savedSize.width,
+            scaleY = bounds.height / savedSize.height,
+          )
+        } else it
       },
     )
     return stateAdjuster.adjustForNewViewportSize(

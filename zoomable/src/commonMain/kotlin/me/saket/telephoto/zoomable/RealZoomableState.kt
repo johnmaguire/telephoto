@@ -139,17 +139,17 @@ internal class RealZoomableState internal constructor(
   internal var dynamicZoomSpec: DynamicZoomSpec by mutableStateOf(DynamicZoomSpec.recommend(ZoomSpec()))
   override val zoomSpec: ZoomSpec get() = currentGestureStateInputs?.zoomSpec ?: ZoomSpec()
 
-  internal var gestureState: GestureStateCalculator by mutableStateOf(
-    GestureStateCalculator { inputs ->
-      savedState.gestureState?.restore(
-        inputs = inputs,
-        coerceOffsetWithinBounds = { contentOffset, contentZoom ->
-          contentOffset.coerceWithinContentBounds(contentZoom, inputs)
-        }
-      )
-        ?: initialGestureState(inputs)
-    }
-  )
+  private val restoredGestureState = GestureStateCalculator { inputs ->
+    savedState.gestureState?.restore(
+      inputs = inputs,
+      coerceOffsetWithinBounds = { contentOffset, contentZoom ->
+        contentOffset.coerceWithinContentBounds(contentZoom, inputs)
+      }
+    )
+      ?: initialGestureState(inputs)
+  }
+
+  internal var gestureState: GestureStateCalculator by mutableStateOf(restoredGestureState)
 
   private val gestureStateInputsCalculator: GestureStateInputsCalculator by derivedStateOf {
     GestureStateInputsCalculator { viewportSize ->
@@ -690,12 +690,19 @@ internal class RealZoomableState internal constructor(
           .collect { (previous, current) ->
             // Only a change in the content's resolution may reach transform() below, which
             // cancels running animations and replaces the active gesture state calculator.
+            // New content that occupies the same bounds is also pinned while the restored state
+            // is active: restoration compares against the saved viewport and could otherwise
+            // rescale content that looks unchanged.
             val scale = contentResolutionChange(
               previousSize = previous.unscaledContentBounds.size,
               location = current.contentLocation,
               layoutSize = previous.viewportSize,
               layoutDirection = previous.layoutDirection,
-            ) ?: return@collect
+            ) ?: ScaleFactor(1f, 1f).takeIf {
+              gestureState === restoredGestureState &&
+                previous.contentLocation != current.contentLocation &&
+                previous.unscaledContentBounds == current.unscaledContentBounds
+            } ?: return@collect
             // This unfortunately cancels any ongoing zoom/pan animations. It would be excellent
             // to support updating the offset without interrupting animations in the future.
             transformableState.transform(MutatePriority.PreventUserInput) {
